@@ -121,11 +121,47 @@ ClassMethod ValidateReference(ByRef context, reference As %DynamicObject)
 /// Check if the  resource with the specified identifier exists
 ClassMethod ValidateIdentifierValue(strategy As MyFHIRServer.Storage.Json.InteractionsStrategy, referenceType As %String, targetResourceType As %String, system As %String, value As %String, location As %String) As %String
 {
-    if (targetResourceType = "") // Can't check without type
+    if (targetResourceType = "")
     {
-        $$$ThrowFHIR($$$GeneralError, "No type specified for " _ referenceType _ " reference " _ location _ " with system '" _ system _ "' and value '" _ value _ "'", $$$OutcomeIs(422, "error", "invalid"))
+        // Determine the allowed target types defined in the StructureDefinition and try to find
+
+        set allowedTargetTypes = ..GetAllowedTargetTypes(location)
+
+        for index = 1:1:$LENGTH(allowedTargetTypes, ",")
+        {
+            set targetType = $PIECE(allowedTargetTypes, ",", index)
+
+            if targetType = "Resource"
+            {
+                $$$ThrowFHIR($$$GeneralError, "Target type 'Resource' is too generic for " _ location, $$$OutcomeIs(422, "error", "invalid"))
+            }
+
+            set key = ..FindResourceKeyByIdentifier(strategy, targetType, system, value)
+
+            if key '= ""
+            {
+                return key
+            }
+        }
+    }
+    else
+    {
+        set key = ..FindResourceKeyByIdentifier(strategy, targetResourceType, system, value)
+
+        if key '= ""
+        {
+            return key
+        }
     }
 
+    $$$ThrowFHIR($$$GeneralError, "Reference " _ location _ " with system '" _ system _ "' and value '" _ value _ "' cannot be resolved", $$$OutcomeIs(422, "error", "invalid"))
+}
+
+/// Query for Json
+/// SELECT Key FROM HSFHIR_X0004_S_Patient.identifier WHERE value_System = 'https://fhir-ns.amaronhealthcare.com/id/local-patient-identifier/amaron' AND value_Value = '120406 045A84'
+/// SELECT Key FROM HSFHIR_X0004_S_Practitioner.identifier WHERE value_System = 'https://fhir-ns.amaronhealthcare.com/id/local-practitioner-identifier/amaron' AND value_Value = '10828465123'
+ClassMethod FindResourceKeyByIdentifier(strategy As MyFHIRServer.Storage.Json.InteractionsStrategy, targetResourceType As %String, system As %String, value As %String) As %String
+{
     set query = "SELECT _id as resourceId FROM "_ strategy.GetSearchTable(targetResourceType) _ " WHERE FOR SOME %ELEMENT(identifier) (%VALUE = '"_system _ "|" _ value _ "')"
 
     #dim rset as %SQL.StatementResult = ##Class(HS.FHIRServer.Util.RunSQLQuery).runQuery(query)
@@ -135,7 +171,46 @@ ClassMethod ValidateIdentifierValue(strategy As MyFHIRServer.Storage.Json.Intera
         return targetResourceType _ "/" _ rset.%Get("resourceId")
     }
 
-    $$$ThrowFHIR($$$GeneralError, referenceType _ " " _ targetResourceType _ " reference " _ location _ " with system '" _ system _ "' and value '" _ value _ "' cannot be resolved", $$$OutcomeIs(422, "error", "invalid"))
+    return ""
+}
+
+/// Query for JsonAdvSQL
+/// SELECT Key FROM HSFHIR_X0004_S_Patient.identifier WHERE value_System = 'https://fhir-ns.amaronhealthcare.com/id/local-patient-identifier/amaron' AND value_Value = '120406 045A84'
+/// SELECT Key FROM HSFHIR_X0004_S_Practitioner.identifier WHERE value_System = 'https://fhir-ns.amaronhealthcare.com/id/local-practitioner-identifier/amaron' AND value_Value = '10828465123'
+ClassMethod FindResourceKeyByIdentifierJsonAdvSQL(strategy As MyFHIRServer.Storage.Json.InteractionsStrategy, targetResourceType As %String, system As %String, value As %String) As %String
+{
+    set query = "SELECT Key FROM "_ strategy.GetSearchTable(targetResourceType, "identifier") _ " WHERE value_System = ? AND value_Value = ?" 
+    set result = ##class(%SQL.Statement).%ExecDirect(, query, system, value)
+
+    if result.%SQLCODE < 0
+    {
+        throw ##class(%Exception.SQL).CreateFromSQLCODE(result.%SQLCODE,result.%Message)
+    }
+
+    if (result.%Next())
+    {
+        return result.Key
+    }
+
+    return ""
+}
+
+/// Get target resource types based on the asumption the target column is a searchColumn
+ClassMethod GetAllowedTargetTypes(fhirpath As %String) As %String
+{
+    set result = ##class(%SQL.Statement).%ExecDirect(, "select Target from HS_FHIRServer_Storage_Json.SearchColumn WHERE Type = 'reference' And FHIRPath = ?", fhirpath)
+
+    if result.%SQLCODE < 0
+    {
+        throw ##class(%Exception.SQL).CreateFromSQLCODE(result.%SQLCODE,result.%Message)
+    }
+
+    if result.%Next()
+    {
+        return $LISTTOSTRING(result.Target)
+    }
+    
+    $$$ThrowFHIR($$$GeneralError, "Reference '" _ fhirpath _ "' has no matching search column defined", $$$OutcomeIs(422, "error", "invalid"))
 }
 
 /// Check if the specified reference can be resolved

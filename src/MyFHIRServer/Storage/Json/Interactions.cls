@@ -14,6 +14,33 @@ Parameter OAuth2TokenHandlerClass As STRING = "HS.FHIRServer.Util.OAuth2Token";
 
 Property strategy As MyFHIRServer.Storage.Json.InteractionsStrategy;
 
+Property FHIRService As HS.FHIRServer.API.Service;
+
+/// Gather some  information needed for Trigger processing
+Method OnBeforeRequest(pFHIRService As HS.FHIRServer.API.Service, pFHIRRequest As HS.FHIRServer.API.Data.Request, pTimeout As %Integer)
+{
+	set ..FHIRService = pFHIRService
+
+	if (pFHIRRequest.Json '= "")
+	{
+		set resourceValidator = ##class(HS.FHIRServer.Util.ResourceValidator).%New(pFHIRService.Schema)
+
+		do resourceValidator.ValidateResource(pFHIRRequest.Json)
+		set pFHIRRequest.Json = ##class(MyFHIRServer.Util.ResourceProperties).FHIROrderResourceProperties(pFHIRService.Schema, pFHIRRequest.Json)
+	}
+
+	do ##super(pFHIRService, pFHIRRequest, pTimeout)
+}
+
+/// Fix resource order for create and update
+Method OnAfterRequest(pFHIRService As HS.FHIRServer.API.Service, pFHIRRequest As HS.FHIRServer.API.Data.Request, pFHIRResponse As HS.FHIRServer.API.Data.Response)
+{
+	if $ISOBJECT(pFHIRResponse.Json)
+	{
+		Set pFHIRResponse.Json = ##class(MyFHIRServer.Util.ResourceProperties).FHIROrderResourceProperties(pFHIRService.Schema, pFHIRResponse.Json)
+	}
+}
+
 /// Handle create interaction
 Method Add(pResourceObj As %DynamicObject, pResourceIdToAssign As %String = "", pHttpMethod As %String = "POST") As %String
 {
@@ -29,11 +56,7 @@ Method Add(pResourceObj As %DynamicObject, pResourceIdToAssign As %String = "", 
 		do ..EnsureUniqueIdentifiersBeforeWrite($THIS, pResourceObj)
 	}
 
-	set id = ##super(pResourceObj, pResourceIdToAssign, pHttpMethod)
-
-	do ..PostProcessResource(pResourceObj, 1)
-	
-	return id
+	return ##super(pResourceObj, pResourceIdToAssign, pHttpMethod)
 }
 
 /// Handle Update interaction
@@ -49,11 +72,8 @@ Method Update(pResourceObj As %DynamicObject) As %String
 		do ..EnsureUniqueIdentifiersBeforeWrite($THIS, pResourceObj)
 	}
 	
-	set id = ##super(pResourceObj)
+	return ##super(pResourceObj)
 
-	do ..PostProcessResource(pResourceObj, 1)
-
-	return id
 }
 
 /// Read interaction handler, orders the properties!
@@ -63,12 +83,12 @@ Method Read(pResourceType As %String, pResourceId As %String, pVersionId As %Str
 }
 
 /// Process resource before return
-Method PostProcessResource(resource As %DynamicObject, modifyOriginalObject As %Boolean = 0) As %DynamicObject
+Method PostProcessResource(resource As %DynamicObject) As %DynamicObject
 {
 	do ..SetDisplayFor4References(resource)
 	do ..AddOrUpdateText(resource)
 
-	return ##class(MyFHIRServer.Util.ResourceProperties).FHIROrderResourceProperties(resource, modifyOriginalObject)
+	return resource
 }
 
 /// Add or update Text

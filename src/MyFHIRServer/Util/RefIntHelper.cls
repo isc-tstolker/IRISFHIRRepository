@@ -157,11 +157,14 @@ ClassMethod ValidateIdentifierValue(strategy As MyFHIRServer.Storage.Json.Intera
     $$$ThrowFHIR($$$GeneralError, "Reference " _ location _ " with system '" _ system _ "' and value '" _ value _ "' cannot be resolved", $$$OutcomeIs(422, "error", "invalid"))
 }
 
-/// Query for Json
-/// SELECT Key FROM HSFHIR_X0004_S_Patient.identifier WHERE value_System = 'https://fhir-ns.amaronhealthcare.com/id/local-patient-identifier/amaron' AND value_Value = '120406 045A84'
-/// SELECT Key FROM HSFHIR_X0004_S_Practitioner.identifier WHERE value_System = 'https://fhir-ns.amaronhealthcare.com/id/local-practitioner-identifier/amaron' AND value_Value = '10828465123'
+/// Query for the identifier value
 ClassMethod FindResourceKeyByIdentifier(strategy As MyFHIRServer.Storage.Json.InteractionsStrategy, targetResourceType As %String, system As %String, value As %String) As %String
 {
+    if strategy.%IsA("HS.FHIRServer.Storage.JsonAdvSQL.InteractionsStrategy")
+    {
+        return ..FindResourceKeyByIdentifierJsonAdvSQL(strategy, targetResourceType, system, value)
+    }
+
     set query = "SELECT _id as resourceId FROM "_ strategy.GetSearchTable(targetResourceType) _ " WHERE FOR SOME %ELEMENT(identifier) (%VALUE = '"_system _ "|" _ value _ "')"
 
     #dim rset as %SQL.StatementResult = ##Class(HS.FHIRServer.Util.RunSQLQuery).runQuery(query)

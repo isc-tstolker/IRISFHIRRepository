@@ -1,5 +1,5 @@
     zn "USER"
-    set sc = $System.OBJ.Load("/home/irisowner/irisdev/src/Install/Install.cls", "ckd")
+    set sc = $System.OBJ.Import("/home/irisowner/irisdev/src/Install/Install.cls", "ckd")
     
 	if 'sc
 	{
@@ -10,5 +10,7 @@
 
     // Now load package 
     zn "FHIR"
+    zpm "install isc.rest"
+    zpm "install isc.json"
     zpm "load /home/irisowner/irisdev/ -v":1:1
     halt
